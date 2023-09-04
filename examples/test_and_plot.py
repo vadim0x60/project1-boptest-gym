@@ -68,11 +68,8 @@ def test_agent(env, model, start_time, episode_length, warmup_period,
     
     return observations, actions, rewards, kpis
 
-def plot_results(env, rewards, points=['reaTZon_y','reaTSetHea_y','reaTSetCoo_y','oveHeaPumY_u',
-                                       'weaSta_reaWeaTDryBul_y', 'weaSta_reaWeaHDirNor_y'],
-                 log_dir=os.getcwd(), model_name='last_model', save_to_file=False):
-    
-
+def retreive_results(env, points=['reaTZon_y','reaTSetHea_y','reaTSetCoo_y','oveHeaPumY_u',
+                                  'weaSta_reaWeaTDryBul_y', 'weaSta_reaWeaHDirNor_y']):
     if points is None:
         points = list(env.all_measurement_vars.keys()) + \
                  list(env.all_input_vars.keys())
@@ -89,6 +86,12 @@ def plot_results(env, rewards, points=['reaTZon_y','reaTSetHea_y','reaTSetCoo_y'
     df = pd.DataFrame(res)
     df = create_datetime_index(df)
     df.dropna(axis=0, inplace=True)
+    return df
+
+def plot_results(env, rewards, points=['reaTZon_y','reaTSetHea_y','reaTSetCoo_y','oveHeaPumY_u',
+                                       'weaSta_reaWeaTDryBul_y', 'weaSta_reaWeaHDirNor_y'],
+                 log_dir=os.getcwd(), model_name='last_model', save_to_file=False):
+    df = retreive_results(env, points=points)
     scenario = env.scenario
 
     if save_to_file:
