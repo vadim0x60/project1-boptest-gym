@@ -39,15 +39,12 @@ observations_hint = """
 99 variables in total, each on a new line.
 """
 
-report_observations = ['reaTZon_y', 'oveHeaPumY_u', 
-                       'PriceElectricPowerDynamic', 'TDryBul', 'reaPHeaPum_y', 
+report_observations = ['reaTZon_y', 'oveHeaPumY_u', 'reaPHeaPum_y', 
                        'reaTSup_y', 'reaTRet_y']
 
 report_observations_hint = """
 - reaTZon_y: the zone temperature in Kelvin
 - oveHeaPumY_u: the heat pump modulating signal (0-1)
-- PriceElectricPowerDynamic: the forecasted electricity price in Euro per kWh
-- TDryBul: the forecasted dry bulb temperature outside in Kelvin
 - reaPHeaPum_y: Heat pump electrical power
 - reaTSup_y: Supply water temperature to radiant floor
 - reaTRet_y: Return water temperature from radiant floor
@@ -79,7 +76,7 @@ def brief():
   text += observations_hint
   messages.append({"role": "user", "content": text})
 
-def summarize(df, kpis):
+def summarize(df):
   text = """
     Below you will find a rollout of the Hydronic Heat Pump environment.
     It represents a history of one thermostat control episode
@@ -87,8 +84,7 @@ def summarize(df, kpis):
   
   text += report_observations_hint
   
-  text += df.to_string() + '\n'
-  text += '\n'.join([f'{k}: {v}' for k, v in kpis.items()])
+  text += '\n' + df.to_string() + '\n'
 
   text += """
 
@@ -141,7 +137,7 @@ def prune_messages(*args):
 @retry(retry=retry_if_exception_type(openai.error.RateLimitError),
        wait=wait_random_exponential(),
        stop=stop_after_attempt(10))
-def gpt():
+def gpt(messages):
   completion = openai.ChatCompletion.create(
       model=model,
       messages=messages
@@ -172,7 +168,7 @@ brief()
 print(messages[-1]['content'], flush=True)
 
 for i in range(N):
-  gpt()
+  gpt(messages)
     
   print(messages[-1]['content'], flush=True)
 
