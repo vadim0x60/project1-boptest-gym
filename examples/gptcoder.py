@@ -152,12 +152,12 @@ def extract_code(msg):
   else:
     return msg
 
-def test():
+def test(episode_length):
   code = extract_code(messages[-1]['content'])
   program = programlib.Program(code, language='Python')
   model = program.spawn().rl(env.action_space, env.observation_space)
   
-  test_agent(env, model, env.start_time, env.max_episode_length, env.warmup_period)
+  test_agent(env, model, env.start_time, episode_length, env.warmup_period)
   rollout = retreive_results(env, points=report_observations)
   rollout = rollout[rollout['time'] > env.start_time]
   rollout = rollout[rollout['time'] < env.start_time + env.max_episode_length]
@@ -167,14 +167,17 @@ def test():
 brief()
 print(messages[-1]['content'], flush=True)
 
+episode_length = 32 * 60
+
 for i in range(N):
   gpt(messages)
     
   print(messages[-1]['content'], flush=True)
 
   try:
-    rollout, kpis = test()
+    rollout, kpis = test(episode_length)
     debrief(rollout, kpis)
+    episode_length = min(episode_length * 2, 7 * 24 * 3600)
   except ValueError as e:
     messages.append({"role": "user", "content": str(e)})
   except (OSError, EOF, TIMEOUT) as e:
