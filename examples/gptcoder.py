@@ -235,5 +235,7 @@ for i in range(N):
     messages.append({'role': 'user', 'content': str(e)})
   except (OSError, EOF, TIMEOUT) as e:
     messages.append({'role': 'user', 'content': 'Your program doesn\'t seem to be expecting input.'})
+  except SyntaxError as e:
+    messages.append({'role': 'user', 'content': 'Are you sure your program outputs only the control signal (a number)?'})
 
   log_last()
