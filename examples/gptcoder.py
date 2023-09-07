@@ -21,7 +21,7 @@ import itertools
 
 START_STR = 'INITIATE SYNTHESIZE, EXECUTE, INSTRUCT, DEBUG'
 
-model = "gpt-4"
+model = 'gpt-4'
 openai_tantrums = (openai.error.RateLimitError, 
                    openai.error.APIError, 
                    openai.error.ServiceUnavailableError)
@@ -113,7 +113,7 @@ def brief():
     
     Input variables are, in this order:"""
   text += observations_hint
-  messages.append({"role": "user", "content": text})
+  messages.append({'role': 'user', 'content': text})
 
 def summarize(df):
   text = """
@@ -131,8 +131,8 @@ def summarize(df):
     """
   
   messages = [
-    {"role": "system", "content": 'You are a helpful assistant'},
-    {"role": "user", "content": text}
+    {'role': 'system', 'content': 'You are a helpful assistant'},
+    {'role': 'user', 'content': text}
   ]
 
   gpt(messages)()
@@ -163,10 +163,10 @@ def debrief(rollout, kpis):
 
     Can you rewrite the program to lower the costs and/or discomfort?
     """
-  messages.append({"role": "user", "content": text})
+  messages.append({'role': 'user', 'content': text})
 
 messages = [
-    {"role": "system", "content": SYSTEM_MSG},
+    {'role': 'system', 'content': SYSTEM_MSG},
 ]
 
 def gpt(messages):
@@ -232,8 +232,8 @@ for i in range(N):
     debrief(rollout, kpis)
     episode_length = min(episode_length * 2, 7 * 24 * 3600)
   except ValueError as e:
-    messages.append({"role": "user", "content": str(e)})
+    messages.append({'role': 'user', 'content': str(e)})
   except (OSError, EOF, TIMEOUT) as e:
-    messages.append({"role": "user", "content": 'Your program doesn\'t seem to be expecting input.'})
+    messages.append({'role': 'user', 'content': 'Your program doesn\'t seem to be expecting input.'})
 
   log_last()
