@@ -4,7 +4,7 @@ import programlib
 from pexpect.exceptions import EOF, TIMEOUT
 
 # Dealing with OpenAI API requires tenacity
-from tenacity import retry, retry_if_exception_message, retry_if_exception_type, wait_random_exponential, stop_after_attempt
+from tenacity import retry, retry_if_exception_message, retry_if_exception_type, wait_random_exponential, stop_after_attempt, retry_if_result
 
 # For BOPTEST
 import gymnasium as gym
@@ -12,16 +12,55 @@ from boptestGymEnv import BoptestGymEnv
 from examples.test_and_plot import test_agent, retreive_results
 
 import pandas as pd
+import numpy as np
 import os
 from collections import OrderedDict
+import sys
+import itertools
+
+
+START_STR = 'INITIATE SYNTHESIZE, EXECUTE, INSTRUCT, DEBUG'
 
 model = "gpt-4"
+openai_tantrums = (openai.error.RateLimitError, 
+                   openai.error.APIError, 
+                   openai.error.ServiceUnavailableError)
+
 SYSTEM_MSG = os.environ.get('SYSTEM_MSG', 'You are a program synthesis system. Answer with code only.')
-SUMMARY_FACTOR = int(os.environ.get('SUMMARY_FACTOR', 512))
+SUMMARY_FACTOR = int(os.environ.get('SUMMARY_FACTOR', 100))
 N = int(os.environ.get('N', 4096))
 
+print(START_STR)
 for config_var in ('SYSTEM_MSG', 'SUMMARY_FACTOR', 'N'):
   print(f'{config_var} = {eval(config_var)}')
+
+def log_last():
+  """Log the last message to stdout"""
+  print('---')
+  print(messages[-1]['content'], flush=True)
+
+def log_all():
+  """Log all messages except the system prompt to stdout"""
+  for msg in messages[1:]:
+    print('---')
+    print(msg['content'], flush=True)
+
+def restore_state():
+  if sys.stdin.isatty():
+    raise ValueError('no piped input found')
+  
+  message_archive = sys.stdin.read().split('\n---\n')
+  message_archive = filter(lambda x: START_STR not in x, message_archive)
+  roles = itertools.cycle(['user', 'assistant'])
+  message_archive = [
+    {'role': role, 'content': msg} 
+    for role, msg in zip(roles, message_archive)
+  ]
+
+  if (message_archive[-1]['role'] == 'assistant'):
+    message_archive.pop()
+
+  messages.extend(message_archive)
 
 # Make sure that the test case is bestest_hydronic_heat_pump
 # TESTCASE=bestest_hydronic_heat_pump docker compose up
@@ -53,12 +92,12 @@ report_observations_hint = """
 env = BoptestGymEnv(
   url                   = url,
   actions               = ['oveHeaPumY_u'],
-  observations          = observations, 
+  observations          = observations,
   random_start_time     = False,
-  predictive_period=12 * 3600,
-  start_time= 1382400,
-  warmup_period=7 * 24 * 3600,
-  max_episode_length=7 * 24 * 3600,
+  predictive_period     = 12 * 3600,
+  start_time            = 1382400,
+  warmup_period         = 7 * 24 * 3600,
+  max_episode_length    = 7 * 24 * 3600,
   step_period           = 900,
   scenario              = {'electricity_price': 'dynamic', 'time_period': 'peak_heat_day'})
 
@@ -84,7 +123,7 @@ def summarize(df):
   
   text += report_observations_hint
   
-  text += '\n' + df.to_string() + '\n'
+  text += '\n' + df.to_string(float_format=lambda x: f'{x:.4f}') + '\n'
 
   text += """
 
@@ -96,30 +135,33 @@ def summarize(df):
     {"role": "user", "content": text}
   ]
 
-  gpt(messages)
+  gpt(messages)()
   return messages[-1]['content']
 
 def debrief(rollout, kpis):
   text = """
     Here's how it went:
     """
-  start_idx = 0
-  end_idx = SUMMARY_FACTOR
-
-  while start_idx < len(rollout):
-    text += summarize(rollout.iloc[start_idx:end_idx])
-    start_idx += SUMMARY_FACTOR
-    end_idx += SUMMARY_FACTOR
-    text += "\n"
-
-  cost = kpis['cost_tot']
-  discomfort = kpis['tdis_tot']
+  
+  # Resample the rollout to reduce the number of tokens for GPT to handle
+  episode_length = len(rollout)
+  episode_days = (rollout.iloc[-1]['time'] - rollout.iloc[0]['time']) / (3600 * 24)
+  if episode_length > SUMMARY_FACTOR:
+    groups = np.arange(episode_length) // int (episode_length / SUMMARY_FACTOR)
+    rollout = rollout.groupby(groups).mean()
+  text += summarize(rollout)
 
   text += f"""
-    Electricity cost: {cost}
-    Discomfort: {discomfort}
+    Episode length: {episode_days} days
 
-    Can you rewrite the program to achieve a lower discomfort and/or lower electricity cost?
+    Daily electrcity cost: {kpis['cost_tot'] / episode_days} EUR/m2
+    Daily thermal discomfort: {kpis['tdis_tot'] / episode_days} K*h/zone
+    Daily energy use (kWh): {kpis['ener_tot'] / episode_days} kWh/m2
+    Daily emissions: {kpis['emis_tot'] / episode_days} kgCO2/m2
+
+    Computational time ratio: {kpis['time_rat']}
+
+    Can you rewrite the program to lower the costs and/or discomfort?
     """
   messages.append({"role": "user", "content": text})
 
@@ -127,22 +169,30 @@ messages = [
     {"role": "system", "content": SYSTEM_MSG},
 ]
 
-def prune_messages(*args):
-  # message[0] is the system message
-  print('Pruning the chat history to fit into context window')
-  del messages[1]
-
-@retry(retry=retry_if_exception_message(match=r'.*Please reduce the length.*'),
-       after=prune_messages)
-@retry(retry=retry_if_exception_type(openai.error.RateLimitError),
-       wait=wait_random_exponential(),
-       stop=stop_after_attempt(10))
 def gpt(messages):
-  completion = openai.ChatCompletion.create(
-      model=model,
-      messages=messages
-    )
-  messages.append(completion['choices'][0]['message'])
+  def prune_messages(*args):
+    # message[0] is the system message
+    del messages[1]
+
+  @retry(retry=retry_if_exception_message(match=r'.*Please reduce the length.*'),
+         after=prune_messages)
+  @retry(retry=retry_if_result(lambda r: r['finish_reason'] == 'length'),
+         after=prune_messages)
+  @retry(retry=retry_if_exception_type(openai_tantrums),
+         wait=wait_random_exponential(),
+         stop=stop_after_attempt(10))
+  def infer():
+    completion = openai.ChatCompletion.create(
+        model=model,
+        messages=messages,
+        temperature=1
+      )
+    return completion['choices'][0]
+  
+  def continue_chat():
+    messages.append(infer()['message'])
+
+  return continue_chat
 
 def extract_code(msg):
   if '```' in msg:
@@ -164,15 +214,18 @@ def test(episode_length):
 
   return rollout, env.get_kpis()
 
-brief()
-print(messages[-1]['content'], flush=True)
+try:
+  restore_state()
+except ValueError:
+  brief()
+log_all()
 
-episode_length = 32 * 60
+episode_length = min(32 * 60 * (2 ** ((len(messages) - 1) / 2)), 7 * 24 * 3600)
 
 for i in range(N):
-  gpt(messages)
+  gpt(messages)()
     
-  print(messages[-1]['content'], flush=True)
+  log_last()
 
   try:
     rollout, kpis = test(episode_length)
@@ -183,4 +236,4 @@ for i in range(N):
   except (OSError, EOF, TIMEOUT) as e:
     messages.append({"role": "user", "content": 'Your program doesn\'t seem to be expecting input.'})
 
-  print(messages[-1]['content'], flush=True)
+  log_last()

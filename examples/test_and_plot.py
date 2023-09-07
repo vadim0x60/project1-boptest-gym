@@ -41,7 +41,6 @@ def test_agent(env, model, start_time, episode_length, warmup_period,
     observations = [obs]
     actions = []
     rewards = []
-    print('Simulating...')
     while not done:
         action, _ = model.predict(obs, deterministic=True)
         obs, reward, terminated, truncated, _ = env.step(action)
