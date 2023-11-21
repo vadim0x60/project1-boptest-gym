@@ -6,8 +6,14 @@ ROOT ?= $(shell dirname \
 IMG_NAME=boptestgym
 IMG_HOME=/home/developer/boptestgym
 
+# Name of remote registry image
+IMG_REGI=javierarroyo/boptestgym
+
 # BOPTEST commit used for the tests
-BOPTEST_COMMIT=1fd96639518853c1ddc41355a8f9e29edce3242d
+BOPTEST_COMMIT=12ceafe42983d42e535385dee1daa1d25673e2aa
+
+# Define current BOPTEST-Gym version (should be even with BOPTEST version defined in commit above)
+VERSION = 0.5.0-dev
 
 build-boptestgym:
 	docker build -f ${ROOT}/testing/Dockerfile \
@@ -52,17 +58,31 @@ exec-boptestgym:
 
 push-boptestgym:
 # requires `docker login` first
-	docker tag boptestgym javierarroyo/boptestgym
-	docker push javierarroyo/boptestgym
+	docker tag ${IMG_NAME} ${IMG_REGI}:${VERSION}
+	docker push ${IMG_REGI}:${VERSION}
 
 pull-boptestgym:
-	docker pull javierarroyo/boptestgym 
-	docker tag javierarroyo/boptestgym boptestgym
+	docker pull ${IMG_REGI}:${VERSION}
+	docker tag ${IMG_REGI}:${VERSION} ${IMG_NAME}
 
-run-boptest-case:
+make download-boptest:
 	curl -L -o boptest.zip https://github.com/ibpsa/project1-boptest/archive/${BOPTEST_COMMIT}.zip
 	unzip -o -q boptest.zip
+	
+run-boptest-case:
+	make download-boptest
 	cd project1-boptest-${BOPTEST_COMMIT} && \
+	TESTCASE=bestest_hydronic_heat_pump docker-compose up -d --quiet-pull
+
+run-boptest-case-no-cache:
+	make download-boptest
+	cd project1-boptest-${BOPTEST_COMMIT} && \
+	TESTCASE=bestest_hydronic_heat_pump docker-compose up -d --force-recreate --build
+
+run-boptest-vectorized:
+	make download-boptest && \
+	cd .. && python3 generateDockerComposeYml.py testing/project1-boptest-${BOPTEST_COMMIT} && \
+	cd testing/project1-boptest-${BOPTEST_COMMIT} && \
 	TESTCASE=bestest_hydronic_heat_pump docker-compose up -d --quiet-pull
 
 stop-boptest-case:
@@ -77,6 +97,10 @@ cleanup-boptest:
 test-local:
 	python3 -m unittest test_boptestGymEnv.BoptestGymEnvTest
 
+# Vectorized needs to run separate since modifies docker-compose.yml to have multiple boptest instances 
+test-vectorized:
+	python3 -m unittest test_boptestGymEnv.BoptestGymVecTest project1-boptest-${BOPTEST_COMMIT}
+
 # The tutorial is using boptest-gym-service and covers most of the functionality of boptest-gym 
 test-service:
 	python3 -m unittest test_boptestGymEnv.BoptestGymServiceTest
@@ -85,6 +109,14 @@ test-local-in-container:
 	make run-boptest-case
 	make run-boptestgym-detached
 	make exec-boptestgym ARGS="make test-local"
+	make stop-boptestgym
+	make stop-boptest-case
+	make cleanup-boptest
+
+test-vectorized-in-container:
+	make run-boptest-vectorized
+	make run-boptestgym-detached
+	make exec-boptestgym ARGS="make test-vectorized"
 	make stop-boptestgym
 	make stop-boptest-case
 	make cleanup-boptest
