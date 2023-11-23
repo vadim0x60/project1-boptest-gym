@@ -18,7 +18,6 @@ from collections import OrderedDict
 import sys
 import itertools
 
-
 START_STR = 'INITIATE SYNTHESIZE, EXECUTE, INSTRUCT, DEBUG'
 
 model = 'gpt-4'
@@ -88,6 +87,20 @@ report_observations_hint = """
 - reaTSup_y: Supply water temperature to radiant floor
 - reaTRet_y: Return water temperature from radiant floor
 """
+
+electricity_price = os.environ.get('ELECTRICITY_PRICE', 'dynamic')
+time_period = os.environ.get('TIME_PERIOD', 'peak_heat_day')
+
+try:
+  import wandb
+  wandb.init(project='boptest-gptcoder', config={
+    'testcase': 'bestest_hydronic_heat_pump',
+    'electricity_price': electricity_price,
+    'time_period': time_period
+  })
+  report_metrics = wandb.log
+except ImportError:
+  report_metrics = lambda x: None
 
 env = BoptestGymEnv(
   url                   = url,
@@ -229,6 +242,7 @@ for i in range(N):
 
   try:
     rollout, kpis = test(episode_length)
+    report_metrics(kpis)
     debrief(rollout, kpis)
     episode_length = min(episode_length * 2, 7 * 24 * 3600)
   except ValueError as e:
