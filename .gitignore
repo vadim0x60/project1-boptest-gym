@@ -11,3 +11,4 @@ examples/agents/variable_episode_A2C/monitor.csv
 examples/kpis/
 *testing/boptest.zip
 *testing/project1-boptest*
+wandb
