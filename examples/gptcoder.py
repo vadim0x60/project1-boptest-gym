@@ -242,6 +242,8 @@ for i in range(N):
 
   try:
     rollout, kpis = test(episode_length)
+    for _, step in rollout.iterrows():
+      report_metrics(step.to_dict())
     report_metrics(kpis)
     debrief(rollout, kpis)
     episode_length = min(episode_length * 2, 7 * 24 * 3600)
